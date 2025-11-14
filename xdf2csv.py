@@ -1,14 +1,16 @@
+import glob
 import sys
 from enum import StrEnum, auto, unique
 
 import pyxdf
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 @unique
 class TokExpMarker(StrEnum):
-    JEBSEN_TAYLOR = auto()
-    BOXBLOCK = auto()
+    JEBSEN_TAYLOR = "jebsen_taylor"
+    BOXBLOCK = "boxblock"
     TASK_BLOCK_START_JEBSEN_TAYLOR = "task_block_start|JEBSEN_TAYLOR"
     TASK_BLOCK_END_JEBSEN_TAYLOR = "task_block_end|JEBSEN_TAYLOR"
     TASK_BLOCK_START_BOX_BLOCK = "task_block_start|BOX_BLOCK"
@@ -30,13 +32,20 @@ class TokExpMarker(StrEnum):
     TRIAL_START = "trial_start"
     TASK_REPEAT = "task_repeat"
     TASK_REPEAT_REASON_PARTICIPANT = "task_repeat_reason|participant"
+    TASK_REPEAT_REASON_OTHER = "task_repeat_reason|other"
     TASK_ACCEPT = "task_accept"
+    TASK_ACCEPT_0 = "task_accept|0"
     TASK_ACCEPT_1 = "task_accept|1"
     TASK_ACCEPT_2 = "task_accept|2"
     TASK_ACCEPT_3 = "task_accept|3"
     TASK_ACCEPT_4 = "task_accept|4"
     TASK_ACCEPT_5 = "task_accept|5"
     TASK_ACCEPT_6 = "task_accept|6"
+    TASK_ACCEPT_7 = "task_accept|7"
+    TASK_ACCEPT_8 = "task_accept|8"
+    TASK_ACCEPT_9 = "task_accept|9"
+    TASK_ACCEPT_10 = "task_accept|10"
+    task_accept_11 = "task_accept|11"
     TRIAL_END = "trial_end"
     TASK_REPEAT_REASON_HARDWARE = "task_repeat_reason|hardware"
     PRACTICE_BOXBLOCK_START = "practice_boxblock_start"
@@ -46,23 +55,48 @@ class TokExpMarker(StrEnum):
     TRIAL_BOXBLOCK_END = "boxblock_end"
     BLOCK_MOVED = "block_moved"
     BOXBLOCK_SKIPPED = "boxblock_skipped"
+    PRACTICE_BOXBLOCK_SKIPPED = "practice_boxblock_skipped"
+    SCORE_MANUALLY_CHANGED = "score_manually_changed"
+    TASK_REPEAT_LIMIT_REACHED = "task_repeat_limit_reached"
     SESSION_END = "session_end"
-    SCORE_MANUALLY_CHANGED = auto()
+
+    @classmethod
+    def is_valid(cls, token):
+        return token in cls._value2member_map_
+
+    @classmethod
+    def jebsen_taylor_type_tasks(cls, token):
+        return token in [cls.TASK_BLOCK_START_JEBSEN_TAYLOR, cls.TASK_BLOCK_END_JEBSEN_TAYLOR,
+                         cls.PRACTICE_JEBSEN_TAYLOR_START, cls.PRACTICE_JEBSEN_TAYLOR_END,
+                         cls.TRIAL_JEBSEN_TAYLOR_START, cls.TRIAL_JEBSEN_TAYLOR_END]
+
+    @classmethod
+    def boxblock_type_tasks(cls, token):
+        return token in [cls.PRACTICE_BOXBLOCK_START, cls.PRACTICE_BOXBLOCK_END,
+                         cls.TRIAL_BOXBLOCK_START, cls.TRIAL_BOXBLOCK_END, cls.BOXBLOCK_SKIPPED]
+
+@unique
+class TokLatMarker(StrEnum):
+    REPETITION_START = "repetition_start"
+    LATENCY_APPLIED = "latency_applied"
+    CONDITION_ADVANCE = "condition_advance"
+    REPETITION_COMPLETE = "repetition_complete"
+    LATENCY_SEQUENCE_COMPLETE = "latency_sequence_complete"
+    LATENCY_CONTROLLER_SHUTDOWN = "latency_controller_shutdown"
+
+    @classmethod
+    def is_valid(cls, token):
+        return token in cls._value2member_map_
+
 
 class TimeSeriesParser:
-    def __init__(self, time_series, do_unpack=True):
+    def __init__(self, time_series, split="", unpack=True):
         self.time_series = time_series
         self.idx = 0
-        if do_unpack:
-            self.unpack()
-
-    def unpack(self):
-        arr = []
-        for l in self.time_series:
-            assert isinstance(l, list), f"Expected list, got {type(l)}"
-            assert len(l) == 1, f"Expected list with 1 element, got {len(l)}"
-            arr.append(l[0])
-        self.time_series = arr
+        if unpack:
+            self.time_series = [l[0] for l in self.time_series]
+        if split != "":
+            self.time_series = [l.split("|") for l in self.time_series]
 
     def print(self):
         for idx,token in enumerate(self.time_series):
@@ -99,143 +133,145 @@ class TimeSeriesParser:
             return token == expected
         return token
 
-def consum_practice(parser):
-    token = parser.next()
-    assert token == TokExpMarker.PRACTICE_SESSION_START, f"No {TokExpMarker.PRACTICE_SESSION_START} was found"
-    while(token != None):
-        token = parser.next()
-        if (token == TokExpMarker.PRACTICE_SESSION_END):
-            token = parser.next()
-            return
-    assert False, f"No {TokExpMarker.PRACTICE_SESSION_END} was found"
+def get_task_order(file_path):
+    data, _ = pyxdf.load_xdf(file_path, select_streams=[{"name": "ExpMarkers"}])
+    print(f"ExpMarkers count: {len(data)}")
+    stream = data[0]
 
-def consum_task(parser):
-    task_type = None
-    token = parser.get_next_token()
-    if token == TokExpMarker.TASK_BLOCK_START_JEBSEN_TAYLOR:
-        task_type = TokExpMarker.JEBSEN_TAYLOR
-    elif token == TokExpMarker.TASK_BLOCK_START_BOX_BLOCK:
-        task_type = TokExpMarker.BOXBLOCK
-    else:
+    time_series = stream['time_series']
+    name = stream['info']['name'][0]
+    stream_type = stream['info']['type'][0]
+    number_of_samples = len(time_series)
 
-        parser.error(f"Expected either {TokExpMarker.TASK_BLOCK_START_JEBSEN_TAYLOR} or " \
-                     f"{TokExpMarker.TASK_BLOCK_START_BOX_BLOCK} as task type, but got {task_type}")
+    print(f"{name=}, {stream_type=}, {number_of_samples=}")
+    parser = TimeSeriesParser(time_series)
+    task_order = [None, None]
 
-    # Jump over practice
-    consum_practice(parser)
+    first_jt_idx = first_bb_idx = None
+    task_order = []
+    tasks = []
+    for token in parser.time_series[parser.idx:]:
+        if not TokExpMarker.is_valid(token):
+            parser.error(f"Unexpected {token}")
 
-    # A trail should be started
-    token = parser.get_next_token(TokExpMarker.TRIAL_START)
-    while (token != None):
-        parser.get_next_token(TokExpMarker.COUNTDOWN_START)
-        parser.get_next_token(TokExpMarker.COUNTDOWN_3)
-        parser.get_next_token(TokExpMarker.COUNTDOWN_2)
-        parser.get_next_token(TokExpMarker.COUNTDOWN_1)
+        is_jt = TokExpMarker.jebsen_taylor_type_tasks(token)
+        is_bb = TokExpMarker.boxblock_type_tasks(token)
 
-        if task_type == TokExpMarker.JEBSEN_TAYLOR:
-            parser.get_next_token(TokExpMarker.TRIAL_JEBSEN_TAYLOR_START)
-            parser.get_next_token(TokExpMarker.TRIAL_JEBSEN_TAYLOR_END)
-        else:
-            parser.get_next_token(TokExpMarker.TRIAL_BOXBLOCK_START)
-            while parser.peak_next_token(TokExpMarker.BLOCK_MOVED):
-                parser.get_next_token(TokExpMarker.BLOCK_MOVED)
+        if is_jt or is_bb:
+            task_order.append(token)
+            idx = len(task_order) - 1
+            if first_jt_idx is None and is_jt:
+                first_jt_idx = idx
+            if first_bb_idx is None and is_bb:
+                first_bb_idx = idx
 
-            if parser.peak_next_token(TokExpMarker.BOXBLOCK_SKIPPED) or parser.peak_next_token(TokExpMarker.TRIAL_BOXBLOCK_END):
-               parser.get_next_token()
-
-        token = parser.get_next_token()
-        if token == TokExpMarker.SCORE_MANUALLY_CHANGED:
-            token = parser.get_next_token()
-
-        if token == TokExpMarker.TASK_REPEAT:
-            token = parser.get_next_token()
-            if token not in (TokExpMarker.TASK_REPEAT_REASON_PARTICIPANT, TokExpMarker.TASK_REPEAT_REASON_HARDWARE):
-                parser.error(f"expected {TokExpMarker.TASK_REPEAT_REASON_PARTICIPANT} or "\
-                             f"{TokExpMarker.TASK_REPEAT_REASON_HARDWARE} but got {token}")
-        elif token in (TokExpMarker.TASK_ACCEPT, TokExpMarker.TASK_ACCEPT_1, TokExpMarker.TASK_ACCEPT_2,
-                       TokExpMarker.TASK_ACCEPT_3, TokExpMarker.TASK_ACCEPT_4,
-                       TokExpMarker.TASK_ACCEPT_5, TokExpMarker.TASK_ACCEPT_6):
-            parser.get_next_token(TokExpMarker.TRIAL_END)
-            parser.get_next_token(TokExpMarker.LABRECORDER_STOP)
-            if parser.peak_next_token(TokExpMarker.LABRECORDER_START):
-                parser.get_next_token(TokExpMarker.LABRECORDER_START)
-                parser.get_next_token(TokExpMarker.TRIAL_START)
-            else:
-                if task_type == TokExpMarker.JEBSEN_TAYLOR:
-                    parser.get_next_token(TokExpMarker.TASK_BLOCK_END_JEBSEN_TAYLOR)
-                else:
-                    parser.get_next_token(TokExpMarker.TASK_BLOCK_END_BOX_BLOCK)
-
-                return task_type
-        else:
-            parser.error(f"got a token that was not handled {token}")
-
-    return None
-
-def parse_xdf(file_path):
-    print(f"Parsing: {file_path}")
-    data, _ = pyxdf.load_xdf(file_path)
-    all_tasks = []
-    expmarker_count = 0
-
-    for i,stream in enumerate(data):
-        time_series = stream['time_series']
-        name = stream['info']['name'][0]
-        stream_type = stream['info']['type'][0]
-        number_of_samples = len(time_series)
-
-        # print(f"{i}: {name=}, {stream_type=}, {number_of_samples=}")
-
-
-        if name == "ExpMarkers":
-            parser = TimeSeriesParser(time_series)
-            # parser.print()
-            tasks = []
-            tasks.append(consum_task(parser))
-            print(f"success: finished parsing first task")
-            tasks.append(consum_task(parser))
-            print(f"success: finished parsing second task")
-            parser.get_next_token(TokExpMarker.SESSION_END)
-            all_tasks.append(tasks)
+        if first_jt_idx != None and first_bb_idx != None:
             break
 
+    assert first_jt_idx != None and first_bb_idx != None, "Could not determen the order of the tasks"
+
+    if first_jt_idx is not None and first_bb_idx is not None:
+        if first_jt_idx < first_bb_idx:
+            task_order = [TokExpMarker.JEBSEN_TAYLOR, TokExpMarker.BOXBLOCK]
+        else:
+            task_order = [TokExpMarker.BOXBLOCK, TokExpMarker.JEBSEN_TAYLOR]
+
+    return task_order
 
 
+def get_latency_order(file_path):
+    data, _ = pyxdf.load_xdf(file_path, select_streams=[{"name": "LatencyMarkers"}])
+    stream = data[0]
+
+    time_series = stream['time_series']
+    name = stream['info']['name'][0]
+    stream_type = stream['info']['type'][0]
+    number_of_samples = len(time_series)
+
+    print(f"{name=}, {stream_type=}, {number_of_samples=}")
+    parser = TimeSeriesParser(time_series, split="|")
+    token = parser.next()
+    num_conditions = 5
+    num_reps = 2
+    lats = [[None for _ in range(num_conditions)] for _ in range(num_reps)]
+    last_applied_lat = "";
+    rep = 0
+    rep_started = True
+    while token != None:
+        if len(token) > 0 and token[0] != "" and not TokLatMarker.is_valid(token[0]):
+            parser.error(f"Unexpected {token[0]}")
+
+        elif token[0] == TokLatMarker.LATENCY_APPLIED and rep_started:
+            last_applied_lat = token[1]
+
+        elif token[0] == TokLatMarker.CONDITION_ADVANCE and rep_started:
+            rep = int(token[1].split("_")[-1]) - 1 # has base 1
+            lat = token[2]
+            condition = int(token[3].split("_")[-1]) - 1 # has base 1
+            lats[rep][condition] = lat
+        token = parser.next()
+
+    if lats[-1][-1] == None:
+       lats[-1][-1] = last_applied_lat
+
+    # Vanity check
+    for rep in range(len(lats)):
+        for cond in range(len(lats[rep])):
+            if lats[rep][cond] == None:
+                raise ValueError(f"Latency contains None value at rep={rep}, cond={cond}\n{lats}")
+
+    return lats
 
 
-        # continue
+exp = []
+dirs = sorted(glob.glob("LatencyPerception/*/"))
+for i,d in enumerate(dirs):
+    xdf_files = glob.glob(f"{d}/*.xdf")
+    print("----------------------------------------------------------------")
 
-        # if name != "LatencyMarkers":
-        #     continue
+    subject_id = d.split('/')[-2]
+    participant = int(subject_id.split('-')[-1])
 
-        # for y in time_series:
-        #     assert len(y) == 1
+    if len(xdf_files) > 1:
+        print(f"TODO: Multiple XDF files for {d}")
+        # Add 10 trials with NA values so R doesn't break
+        for trial in range(1, 11):
+            exp.append({
+                "participant": participant,
+                "task_type": None,
+                "repetition": None,
+                "condition": None,
+                "latency": None,
+                "trial_order": trial,
+            })
+        continue
 
-        #     mark = y[0].split("|")
-        #     if mark[0] =="condition_advance":
-        #         continue
-        #     elif mark[0] == "repetition_start":
-        #         print(f"repetition start: {mark[1]}")
-        #     elif mark[0] == "repetition_complete":
-        #         print(f"repetition end: {mark[1]}")
-        #     elif mark[0] == "latency_applied":
-        #         print(f"latency: {mark[1]}")
-        #     else:
-                # print(mark)
+    file_path = xdf_files[0]
+    print(f"Parsing: {file_path}")
+    task_order = get_task_order(file_path)
+    print(f"task_order:  {task_order}")
+    lats = get_latency_order(file_path)
+    print(f"latency: {lats}")
 
-    print(f"all_tasks: len={len(all_tasks)}, same={all(tasks == all_tasks[0] for tasks in all_tasks)}, {all_tasks}")
+    lat_task = {i+1: {task_order[0].value: lats[0], task_order[1].value: lats[1]}}
 
+    # Correction for participant 002
+    if participant == 2:
+        lat_task[i+1][TokExpMarker.JEBSEN_TAYLOR.value][1] = lat_task[i+1][TokExpMarker.JEBSEN_TAYLOR.value][2]
 
-# print("----------------------------------------------------------------")
-# parse_xdf('LatencyPerception/sub-001/sub-001_ses-_task-_run-001.xdf')
-# print("\n----------------------------------------------------------------")
-# parse_xdf('LatencyPerception/sub-002/sub-002_ses-_task-_run-001.xdf')
-# print("\n----------------------------------------------------------------")
-# parse_xdf('LatencyPerception/sub-003/sub-003_ses-_task-_run-001.xdf') # No practice_session_start nor task_block_start|JEBSEN_TAYLOR is present, in both ExpMarkers
-# print("\n----------------------------------------------------------------")
-# parse_xdf('LatencyPerception/sub-005/sub-005_ses-_task-_run-001.xdf') # No practice_session_start was found in second ExpMarker
-# print("\n----------------------------------------------------------------")
-# parse_xdf('LatencyPerception/sub-006/sub-006_ses-_task-_run-001.xdf')
-print("\n----------------------------------------------------------------")
-parse_xdf('LatencyPerception/sub-007/sub-007_ses-_task-_run-001.xdf')
-print("\n----------------------------------------------------------------")
+    for rep_idx, rep_lats in enumerate(lats):
+        task_type = task_order[rep_idx].value
+        for cond_idx, latency in enumerate(rep_lats):
+            row_data = {
+                "participant": participant,
+                "task_type": task_type,
+                "repetition": rep_idx + 1,  # base 0
+                "condition": cond_idx + 1,   # base 0
+                "latency": latency,
+                "trial_order": (rep_idx * len(rep_lats)) + cond_idx + 1, # R works in base 1
+            }
+            exp.append(row_data)
+
+exp = pd.DataFrame(exp)
+print(exp.head(20))
+exp.to_csv("LatencyPerception/participant_experiment.csv", index=False)
