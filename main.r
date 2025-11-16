@@ -57,7 +57,6 @@ data <- data %>% filter(
                      participant != 10
                  )
 
-
 boxplot_trend_latency <- function(question = NULL) {
     plot_data <- data
     if (!is.null(question)) {
@@ -88,7 +87,7 @@ boxplot_trend_latency <- function(question = NULL) {
         geom_point(data = means,
                    aes(y = mean_response, color = task_type),
                    size = 3, shape = 18, position = position_dodge(width = 0.8)) +
-                                        # Optional: error bars
+                                        # Error bars
         geom_errorbar(data = means,
                       aes(y = mean_response, ymin = mean_response-se, ymax = mean_response+se,
                           color = task_type),
@@ -127,10 +126,10 @@ significant_analysis <- function() {
         cat("\n========", q, "(afex) ========\n")
         d <- data %>% filter(question_type == q)
 
-        model <- aov_ez(id = "participant",
-                        dv = "response",
-                        data = d,
-                        within = c("latency_fct", "task_type"))
+        model <-aov_ez(id = "participant",
+                       dv = "response",
+                       data = d,
+                       within = c("latency_fct", "task_type"))
 
         s <- summary(model)
         ## print(s)
