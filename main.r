@@ -228,9 +228,9 @@ posthoc <- function(anova_results, alpha=0.05) {
                 emm <- emmeans(model, ~ task_type)
                 ph <- pairs(emm, adjust = "tukey")
             } else if (effect_name == "latency_fct:task_type") {
-                ## Interaction effect - compare all combinations
-                emm <- emmeans(model, ~ latency_fct * task_type)
-                ph <- pairs(emm, adjust = "tukey")
+                ## Interaction effect - compare task type at each latency level
+                emm <- emmeans(model, ~ task_type | latency_fct)
+                ph <- pairs(emm, adjust = "bonferroni")
             }
             posthoc_results[[q]][[effect_name]] <- ph
         }
