@@ -43,7 +43,7 @@ data <- quest_long %>%
     mutate(
         response = as.numeric(response),
         latency_num = as.numeric(str_remove(latency, "ms")),
-        latency_fct = factor(latency_num, levels = c(0, 50, 100, 150, 200, 250)))
+        latency_fct = factor(latency_num, levels = c(0, 50, 100, 150, 200)))
 
 
 ## Data Exclusions
