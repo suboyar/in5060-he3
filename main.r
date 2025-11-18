@@ -57,7 +57,92 @@ data <- data %>% filter(
                      participant != 10
                  )
 
-boxplot_trend_latency <- function(question = NULL) {
+boxplot_explanation_plot <- function(paper = "#e1dcd8", ink = "#032c3c") {
+
+    sample_df <- data.frame(parameter = "test", values = 1:100)
+
+    ggplot2_boxplot <- function(x){
+
+        quartiles <- as.numeric(quantile(x,
+                                         probs = c(0.25, 0.5, 0.75)))
+
+        names(quartiles) <- c("25th percentile",
+                              "Median",
+                              "75th percentile")
+
+        IQR <- diff(quartiles[c(1,3)])
+
+        upper_whisker <- max(x)
+        lower_whisker <- min(x)
+
+        return(list("quartiles" = quartiles,
+                    "25th percentile" = as.numeric(quartiles[1]),
+                    "median" = as.numeric(quartiles[2]),
+                    "75th percentile" = as.numeric(quartiles[3]),
+                    "IQR" = IQR,
+                    "upper_whisker" = upper_whisker,
+                    "lower_whisker" = lower_whisker))
+    }
+
+    ggplot_output <- ggplot2_boxplot(sample_df$values)
+
+    set1_color <- tail(RColorBrewer::brewer.pal(4, "Set1"), n=1)
+
+    fontsize <- 5.0
+    fontfamily <- ""
+    update_geom_defaults("text", list(size = fontsize, family = fontfamily))
+    update_geom_defaults("label", list(size = fontsize, family = fontfamily))
+
+    x_bracket_line <- 1.55
+    x_bracket_tick <- 1.35
+    x_iqr_text <- x_bracket_line + 0.01
+    x_whisker_text <- 1.15
+    x_quartile_label <- 1.15
+
+    explain_plot <- ggplot() +
+        geom_boxplot(data = sample_df,
+                     aes(x = parameter, y = values),
+                     fill = set1_color,
+                     width = 0.20,
+                     alpha=0.3,
+                     staplewidth = 0.3,
+                     coef = NULL) +
+        theme_linedraw(base_size = 14, paper = paper, ink = ink) +
+        geom_segment(aes(x = x_bracket_line, xend = x_bracket_line ,
+                         y = ggplot_output[["25th percentile"]],
+                         yend = ggplot_output[["75th percentile"]]),
+                     color = ink) +
+        geom_segment(aes(x = x_bracket_tick, xend = x_bracket_line,
+                         y = ggplot_output[["25th percentile"]],
+                         yend = ggplot_output[["25th percentile"]])) +
+        geom_segment(aes(x = x_bracket_tick, xend = x_bracket_line,
+                         y = ggplot_output[["75th percentile"]],
+                         yend = ggplot_output[["75th percentile"]])) +
+        geom_text(aes(x = x_iqr_text, y = ggplot_output[["median"]]),
+                  label = "Interquartile", fontface = "bold",
+                  vjust = 0.4) +
+        geom_text(aes(x = c(x_whisker_text, x_whisker_text),
+                      y = c(ggplot_output[["upper_whisker"]],
+                            ggplot_output[["lower_whisker"]]),
+                      label = c("Maximum",
+                                "Minimum"))) +
+        geom_label(aes(x = x_quartile_label, y = ggplot_output[["quartiles"]],
+                       label = names(ggplot_output[["quartiles"]])),
+                    label.size = 0) +
+        ylab("") + xlab("") +
+        coord_cartesian(clip = "off") +
+        theme(
+            axis.text = element_blank(),
+            axis.ticks = element_blank(),
+            panel.grid = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.border = element_blank(),
+            plot.margin = margin(t = 5, r = 100, b = 5, l = 5, unit = "pt"),
+        )
+    return(explain_plot)
+}
+
+boxplot_trend_latency <- function(question = NULL, text_color="#032c3c", alpha=100) {
     plot_data <- data
     if (!is.null(question)) {
         plot_data <- data %>% filter(question_type == question)
