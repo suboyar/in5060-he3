@@ -99,8 +99,8 @@ boxplot_trend_latency <- function(question = NULL) {
                                            "control" = "Sense of Control",
                                            "embodiment" = "Embodiment"
                                        ))) +
-        scale_fill_brewer(palette = "Set2") +
-        scale_color_brewer(palette = "Set2") +
+        scale_fill_brewer(palette = "Set1") +
+        scale_color_brewer(palette = "Set1") +
         labs(
             x = "Latency (ms)",
             y = "Response (1-5)",
@@ -108,10 +108,12 @@ boxplot_trend_latency <- function(question = NULL) {
             color = "Task Type",
             caption = expression("Boxplots show distribution; lines show mean" %+-% "SE")
         ) +
-        theme_minimal(base_size = 14) +
+        theme_linedraw(base_size = 14, paper="#e1dcd8", ink="#032c3c", accent="Purple") +
         theme(legend.position = "bottom",
+              ## panel.background = element_rect(fill = alpha("#e1dcd8", alpha), colour = NA),
               strip.text = element_text(face = "bold", size = 12),
-              plot.caption = element_text(hjust = 0.5, face = "italic"))
+              plot.caption = element_text(hjust = 0.5, face = "italic"),
+              panel.grid.minor = element_blank())
 
     return(p)
 }
