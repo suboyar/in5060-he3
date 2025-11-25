@@ -397,8 +397,9 @@ for d in dirs:
 
 exp = pd.DataFrame(exp)
 print(exp.head(100))
-print("Skipped participants and the reason")
+print("Skipped participants and the reason:")
 for p in skipped_participant:
-    print(f"{p}: {skipped_participant[p]}")
-print("Exporting to csv...")
-exp.to_csv("LatencyPerception/participant_experiment.csv", index=False)
+    print(f"\t{p}: {skipped_participant[p]}")
+csv_file = "LatencyPerception/participant_experiment.csv"
+print(f"Exporting to {csv_file}...")
+exp.to_csv(csv_file, index=False)
