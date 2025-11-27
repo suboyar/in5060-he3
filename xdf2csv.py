@@ -298,6 +298,7 @@ skipped_participant = {
     7: "The rubber of the pink finger tip fell off. The wrist tracking was not working well, resulting in only using a lateral grip for JTHFT. In BBT, the wrist was still unresponsive, but the palm is facing down now, so test is possible. In trial 3, the number of blocks should be 3",
     8: "Missing rubber of the pink finger tip. Wrist in static position but facing down",
     9: "Wrist in static position but facing down. In the 2nd trial of JTHFT, the end time should be the acceptance time instead of the end time",
+    20: "Recording was started after the 1st trial",
     32: "The experiment was aborted and not completed",
     35: "Wrist in static position with the hand facing down",
 }
