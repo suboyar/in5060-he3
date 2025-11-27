@@ -534,103 +534,98 @@ anova_embodiment <- create_anova_table("embodiment", anova_results)
 posthoc <- function(anova_results, alpha=0.05) {
     posthoc_results = list()
     for (q in unique(data$question_type)) {
-        cat("\n========", q, "========\n")
         df <- anova_results[[q]]
         model <- attr(df, "model")
 
         significant_rows <- which(df$p_value < alpha)
 
         if (length(significant_rows) == 0) {
-            cat("No significant effects found\n")
             posthoc_results[[q]] <- NULL
             next
         }
 
         posthoc_results[[q]] <- list()
+        effects <- df$Effect[significant_rows]
 
-        for (i in significant_rows) {
-            effect_name <- df$Effect[i]
-            cat("Post-hoc for:", effect_name, "\n")
+        ## If interaction is significant, analyze simple effects
+        if ("latency_fct:task_type" %in% effects) {
+            emm_latency <- emmeans(model, pairwise ~ latency_fct | task_type, adjust = "tukey")
+            posthoc_results[[q]]$simple_latency <- emm_latency
 
-            if (effect_name == "latency_fct") {
-                ## Main effect of latency
-                emm <- emmeans(model, ~ latency_fct)
-                ph <- pairs(emm, adjust = "tukey")
-            } else if (effect_name == "task_type") {
-                ## Main effect of task type
-                emm <- emmeans(model, ~ task_type)
-                ph <- pairs(emm, adjust = "tukey")
-            } else if (effect_name == "latency_fct:task_type") {
-                ## Interaction effect - compare task type at each latency level
-                emm <- emmeans(model, ~ task_type | latency_fct)
-                ph <- pairs(emm, adjust = "bonferroni")
-            }
-            posthoc_results[[q]][[effect_name]] <- ph
+            emm_task <- emmeans(model, pairwise ~ task_type | latency_fct, adjust = "tukey")
+            posthoc_results[[q]]$simple_task <- emm_task
+        }
+
+        ## Main effects (if no interaction)
+        if ("latency_fct" %in% effects && !("latency_fct:task_type" %in% effects)) {
+            emm_latency <- emmeans(model, pairwise ~ latency_fct, adjust = "tukey")
+            posthoc_results[[q]]$latency <- emm_latency
+        }
+
+        if ("task_type" %in% effects && !("latency_fct:task_type" %in% effects)) {
+            emm_task <- emmeans(model, pairwise ~ task_type, adjust = "tukey")
+            posthoc_results[[q]]$task_type <- emm_task
         }
     }
 
     return(posthoc_results)
 }
 
-create_posthoc_table <- function(question_name, posthoc_results) {
-    if (is.null(posthoc_results[[question_name]])) {
-        return(NULL)
-    }
+create_posthoc_table <- function(emm_result, question, effect_type, alpha=0.05, paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
+    contrast_df <- as.data.frame(emm_result$contrasts)
+    emmeans_df <- as.data.frame(emm_result$emmeans)
 
-    # Extract post-hoc results for this question
-    ph_list <- posthoc_results[[question_name]]
+    question_formatted <- str_to_title(str_replace_all(question, "_", " "))
 
-    # Combine all effects into one data frame
-    all_comparisons <- list()
+    effect_formatted <- case_when(
+        effect_type == "latency" ~ "Latency",
+        effect_type == "task_type" ~ "Task Type",
+        effect_type == "simple_latency" ~ "Latency (by Task)",
+        effect_type == "simple_task" ~ "Task Type (by Latency)",
+        TRUE ~ effect_type
+    )
 
-    for (effect_name in names(ph_list)) {
-        ph_data <- as.data.frame(ph_list[[effect_name]])
-        ph_data$Effect <- effect_name
-        all_comparisons[[effect_name]] <- ph_data
-    }
+    title <- paste0(question_formatted, ": ", effect_formatted)
 
-    df <- do.call(rbind, all_comparisons)
-    rownames(df) <- NULL
-
-    # Clean up effect names
-    df$Effect <- gsub("latency_fct", "Latency", df$Effect)
-    df$Effect <- gsub("task_type", "Task Type", df$Effect)
-    df$Effect <- gsub(":", " × ", df$Effect)
-
-    # Format p-values
-    df$p.value <- ifelse(df$p.value < .001, "< .001",
-                         ifelse(df$p.value < .05, sprintf("%.3f", df$p.value),
-                                sprintf("%.2f", df$p.value)))
-
-    # Create gt table
-    gt(df) %>%
-        tab_header(
-            title = paste("Post-hoc Comparisons:",
-                         str_to_title(str_replace(question_name, "_", " ")))
-        ) %>%
+    gt(contrast_df) %>%
+        tab_header(title = title) %>%
         cols_label(
-            Effect = "Effect",
             contrast = "Comparison",
-            estimate = "Difference",
-            SE = "SE",
-            df = "df",
-            t.ratio = "t",
-            p.value = "p"
+            ) %>%
+        fmt_number(columns = c(estimate, SE, df, t.ratio), decimals = 2) %>%
+        fmt(columns = p.value, fns = function(x) {
+            ifelse(x < .001, "< .001", sprintf("%.3f", x))
+        }) %>%
+        fmt(columns = contrast, fns = function(x) {
+            ifelse(grepl("X\\d+", x), gsub("X(\\d+)", "\\1ms", x), x)
+        }) %>%
+        tab_options(
+            table.background.color = paper,
+            table.font.color = ink,
+            table.border.left.style = "solid",
+            table.border.left.width = px(2),
+            table.border.right.style = "solid",
+            table.border.right.width = px(2),
         ) %>%
-        fmt_number(columns = c(estimate, SE, t.ratio), decimals = 3) %>%
-        fmt_number(columns = df, decimals = 0) %>%
+        tab_style(
+            style = cell_text(color = ink),
+            locations = list(
+                cells_title(),
+                cells_column_labels(),
+                cells_body()
+            )
+        ) %>%
         tab_style(
             style = cell_text(weight = "bold"),
             locations = cells_body(
                 columns = p.value,
-                rows = p.value == "< .001"
+                rows = p.value < alpha
             )
         ) %>%
         tab_style(
-            style = cell_fill(color = "#f0f0f0"),
+            style = cell_fill(color = accent),
             locations = cells_body(
-                rows = p.value == "< .001" |
-                       (p.value != "< .001" & as.numeric(p.value) < 0.05)
+                rows = p.value < alpha
             )
         )
 }
