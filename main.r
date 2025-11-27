@@ -311,8 +311,6 @@ boxplot_trend_latency <- function(question = NULL, paper = "#eaeaea", ink = "#03
     return(p)
 }
 
-save_table <- function(table){
-    gtsave(table, paste(substitute(table), ".png", sep=""))
 normality_tests <- function() {
     normality_results <- data %>%
         group_by(question_type, latency_fct, task_type) %>%
@@ -465,7 +463,6 @@ significant_analysis <- function() {
                        within = c("latency_fct", "task_type"))
 
         s <- summary(model)
-        ## print(s)
 
         anova_table <- s$univariate.tests
         result_df = data.frame(
@@ -481,7 +478,6 @@ significant_analysis <- function() {
 
         attr(result_df, "model") <- model
         anova_results[[q]] <- result_df
-
     }
 
     return(anova_results)
@@ -490,14 +486,14 @@ significant_analysis <- function() {
 create_anova_table <- function(question_name, anova_results) {
     df <- anova_results[[question_name]]
 
-    # Clean up effect names
+    ## Clean up effect names
     df$Effect <- c("Latency", "Task Type", "Latency × Task")
 
-    # Format p-values
+    ## Format p-values
     df$p_value <- ifelse(df$p_value < .001, "< .001",
-                         sprintf("%.2f", df$p_value))
+                         sprintf("%.3f", df$p_value))
 
-    # Create gt table
+    ## Create gt table
     gt(df) %>%
         tab_header(
             title = paste("ANOVA Results:",
@@ -522,14 +518,10 @@ create_anova_table <- function(question_name, anova_results) {
                 rows = p_value == "< .001"
             )
         )
-
 }
 
+
 anova_results <- significant_analysis()
-anova_delay <- create_anova_table("delay_perception", anova_results)
-anova_diff <- create_anova_table("difficulty", anova_results)
-anova_control <- create_anova_table("control", anova_results)
-anova_embodiment <- create_anova_table("embodiment", anova_results)
 
 posthoc <- function(anova_results, alpha=0.05) {
     posthoc_results = list()
@@ -631,26 +623,59 @@ create_posthoc_table <- function(emm_result, question, effect_type, alpha=0.05, 
 }
 
 posthoc_results <- posthoc(anova_results)
-posthoc_delay <- create_posthoc_table("delay_perception", posthoc_results)
-posthoc_diff <- create_posthoc_table("difficulty", posthoc_results)
-posthoc_control <- create_posthoc_table("control", posthoc_results)
-posthoc_embodiment <- create_posthoc_table("embodiment", posthoc_results)
+## posthoc_results$control$latency
 
-generate_pngs <- function() {
-    ggsave("faceted.png", boxplot_trend_latency())
-    ggsave("delay_perception.png", boxplot_trend_latency("delay_perception"))
-    ggsave("difficulty.png", boxplot_trend_latency("difficulty"))
-    ggsave("control.png", boxplot_trend_latency("control"))
-    ggsave("embodiment.png", boxplot_trend_latency("embodiment"))
+generate_pngs <- function(outdir=NULL) {
+    if (!is.null(outdir) && outdir != "." && outdir != "..") {
+        dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+    }
 
-    save_table(anova_delay)
-    save_table(anova_diff)
-    save_table(anova_control)
-    save_table(anova_embodiment)
+    gtsave(demographics_summary_table(),
+           filename = "demographics_summary.png",
+           path = outdir,
+           expand = 1)
 
-    save_table(posthoc_delay)
-    save_table(posthoc_diff)
-    save_table(posthoc_control)
-    save_table(posthoc_embodiment)
+    gtsave(create_normality_table(),
+       filename = "normality_summary.png",
+       path = outdir,
+       expand = 1)
+
+    gtsave(create_friedman_table(),
+       filename = "friedman.png",
+       path = outdir,
+       expand = 1)
+
+    create_friedman_table
+
+    ggsave("boxplot_faceted.png", boxplot_trend_latency(), path = outdir)
+    ggsave("boxplot_delay_perception.png", boxplot_trend_latency("delay_perception"), path = outdir)
+    ggsave("boxplot_difficulty.png", boxplot_trend_latency("difficulty"), path = outdir)
+    ggsave("boxplot_control.png", boxplot_trend_latency("control"), path = outdir)
+    ggsave("boxplot_embodiment.png", boxplot_trend_latency("embodiment"), path = outdir)
+
+    questions <- c("delay_perception", "difficulty", "control", "embodiment")
+
+    for (question in questions) {
+        gtsave(create_anova_table(question, anova_results),
+               filename = paste0("anova_", question, ".png"),
+               path = outdir,
+               expand = 1)
+    }
+
+    effect_types <- c("latency", "task_type", "simple_task", "simple_latency")
+
+    for (question in questions) {
+        if (length(posthoc_results[[question]]) > 0) {
+            for (effect_type in effect_types) {
+                emm_result <- posthoc_results[[question]][[effect_type]]
+                if (!is.null(emm_result)) {
+                    table <- create_posthoc_table(emm_result, question, effect_type)
+                    gtsave(table,
+                           filename = paste0("posthoc_", question, "_", effect_type, ".png"),
+                           path = outdir,
+                           expand = 1)
+                }
+            }
+        }
+    }
 }
-
