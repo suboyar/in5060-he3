@@ -14,7 +14,7 @@ library(lmerTest)
 library(lme4)
 library(tidyr)
 
-quest <- read_excel("LatencyPerception/questionnaire_data-561422-2025-11-11-1622.xlsx")
+quest <- read_excel("LatencyPerception/questionnaire_data-561422-2025-11-21-1620.xlsx")
 exp <- read.csv("LatencyPerception/participant_experiment.csv")
 
 quest_long <- quest %>%
@@ -38,26 +38,135 @@ quest_long <- quest %>%
 
 data <- quest_long %>%
     left_join(exp, by = c("participant", "trial_order")) %>%
-    filter(!is.na(task_type)) %>%
-    filter(latency != "") %>%
+    drop_na(task_type, repetition, condition, latency) %>%
     mutate(
         response = as.numeric(response),
         latency_num = as.numeric(str_remove(latency, "ms")),
-        latency_fct = factor(latency_num, levels = c(0, 50, 100, 150, 200)))
+        latency_fct = factor(latency_num, levels = c(0, 50, 100, 150, 200)),
+        question_type = factor(question_type,
+                               levels = c("delay_perception", "difficulty", "control", "embodiment")))
 
+create_summary <- function() {
+    data %>%
+        summarise(
+            N = n(),
+            `Age (Mean ± SD)` = sprintf("%.1f ± %.1f",
+                                        mean(`How old are you?`, na.rm = TRUE),
+                                        sd(`How old are you?`, na.rm = TRUE)),
+            `Male` = sum(`What is your gender` == "Male"),
+            `Female` = sum(`What is your gender` == "Female"),
+            `Other` = sum(`What is your gender` == "Other"),
+            `Right-handed` = sum(str_detect(`What is your dominant hand?`, "Right")),
+            `Left-handed` = sum(str_detect(`What is your dominant hand?`, "Left")),
+            `Novice (Experience 1-2)` = sum(`How experienced are you with robotic systems?` %in% c("1", "2")),
+            `Intermediate (Experience 3-4)` = sum(`How experienced are you with robotic systems?` %in% c("3", "4")),
+            `Expert (Experience 5)` = sum(`How experienced are you with robotic systems?` %in% c("5")),
+            ) %>%
+        t() %>%
+        as.data.frame()
+}
 
-## Data Exclusions
-data <- data %>% filter(
-                     ## Missing data entries
-                     participant != 2,
-                     participant != 20,
-                     ## Hardware malfunction
-                     participant != 7,
-                     participant != 8,
-                     participant != 10
-                 )
+demographics_summary <- function() {
 
-boxplot_explanation_plot <- function(paper = "#e1dcd8", ink = "#032c3c") {
+    calculate_demographics <- function(data) {
+        tibble(
+            Characteristic = c(
+                "N",
+                "Age (Mean ± SD)",
+                "Male",
+                "Female",
+                "Other",
+                "Right-handed",
+                "Left-handed",
+                "Novice (Experience 1-2)",
+                "Intermediate (Experience 3-4)",
+                "Expert (Experience 5)"
+            ),
+            Value = c(
+                nrow(data),
+                sprintf("%.1f ± %.1f", mean(data[["How old are you?"]], na.rm = TRUE), sd(data[["How old are you?"]], na.rm = TRUE)),
+                sum(data[["What is your gender"]] == "Male", na.rm = TRUE),
+                sum(data[["What is your gender"]] == "Female", na.rm = TRUE),
+                sum(data[["What is your gender"]] == "Other", na.rm = TRUE),
+                sum(str_detect(data[["What is your dominant hand?"]], "Right"), na.rm = TRUE),
+                sum(str_detect(data[["What is your dominant hand?"]], "Left"), na.rm = TRUE),
+                sum(data[["How experienced are you with robotic systems?"]] %in% c(1, 2), na.rm = TRUE),
+                sum(data[["How experienced are you with robotic systems?"]] %in% c(3, 4), na.rm = TRUE),
+                sum(data[["How experienced are you with robotic systems?"]] == 5, na.rm = TRUE)
+            )
+        )
+    }
+
+    all_participants <- quest %>%
+        distinct(participant = `Participant number`, .keep_all = TRUE) %>%
+        calculate_demographics()
+
+    valid_participants <- data %>%
+        distinct(participant) %>%
+        pull(participant)
+
+    valid_only <- quest %>%
+        filter(`Participant number` %in% valid_participants) %>%
+        distinct(participant = `Participant number`, .keep_all = TRUE) %>%
+        calculate_demographics()
+
+    demo_summary <- all_participants %>%
+        rename(`All Participants` = Value) %>%
+        left_join(
+            valid_only %>% rename(`Valid Participants` = Value),
+            by = "Characteristic"
+        )
+
+    return(demo_summary)
+}
+
+demographics_summary_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
+
+    demo_summary <- demographics_summary()
+
+    demo_summary_table <- demo_summary %>%
+        gt() %>%
+        tab_header(
+            title = "Participant Demographics",
+            subtitle = "Comparison of all participants and those with valid data"
+        ) %>%
+        tab_options(
+            table.background.color = paper,
+            table.font.color = ink,
+            table.border.left.style = "solid",
+            table.border.left.width = px(2),
+            table.border.right.style = "solid",
+            table.border.right.width = px(2),
+            ) %>%
+        tab_style(
+            style = cell_text(color = ink),
+            locations = list(
+                cells_title(),
+                cells_column_labels(),
+                cells_body()
+            )
+        ) %>%
+        tab_style(
+            style = cell_text(weight = "bold"),
+            locations = cells_body(columns = Characteristic)
+        ) %>%
+        tab_style(
+            style = cell_fill(color = accent),
+            locations = cells_column_labels()
+        ) %>%
+        cols_align(
+            align = "left",
+            columns = Characteristic
+        ) %>%
+        cols_align(
+            align = "center",
+            columns = c(`All Participants`, `Valid Participants`)
+        )
+
+    return(demo_summary_table)
+}
+
+boxplot_explanation_plot <- function(paper = "#eaeaea", ink = "#032c3c") {
 
     sample_df <- data.frame(parameter = "test", values = 1:100)
 
