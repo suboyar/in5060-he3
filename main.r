@@ -313,6 +313,144 @@ boxplot_trend_latency <- function(question = NULL, paper = "#eaeaea", ink = "#03
 
 save_table <- function(table){
     gtsave(table, paste(substitute(table), ".png", sep=""))
+normality_tests <- function() {
+    normality_results <- data %>%
+        group_by(question_type, latency_fct, task_type) %>%
+        summarise(
+            n = n(),
+            shapiro_W = shapiro.test(response)$statistic,
+            shapiro_p = shapiro.test(response)$p.value,
+            .groups = 'drop'
+        ) %>%
+        mutate(
+            normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+        )
+
+    return(normality_results)
+}
+
+create_normality_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
+    norm_results <- normality_tests()
+
+    # Summarize by question type
+    summary_table <- norm_results %>%
+        group_by(question_type) %>%
+        summarise(
+            `Total Groups` = n(),
+            `Normal (p > .05)` = sum(normal == "Yes"),
+            `Non-Normal (p < .05)` = sum(normal == "No"),
+            `% Normal` = sprintf("%.1f%%", 100 * mean(normal == "Yes")),
+            .groups = 'drop'
+        )
+
+    gt(summary_table) %>%
+        tab_header(
+            title = "Normality Tests by Question Type",
+            subtitle = "Shapiro-Wilk test results for each condition"
+        ) %>%
+        cols_label(
+            question_type = "Question Type"
+        ) %>%
+        tab_options(
+            table.background.color = paper,
+            table.font.color = ink,
+            table.border.left.style = "solid",
+            table.border.left.width = px(2),
+            table.border.right.style = "solid",
+            table.border.right.width = px(2)
+        )
+}
+
+friedman_tests <- function() {
+    results <- list()
+
+    for (q in unique(data$question_type)) {
+        d <- data %>%
+            filter(question_type == q) %>%
+            mutate(condition = interaction(latency_fct, task_type))
+
+        # Friedman test
+        friedman <- friedman.test(response ~ condition | participant, data = d)
+
+        results[[q]] <- data.frame(
+            question_type = q,
+            chi_squared = friedman$statistic,
+            df = friedman$parameter,
+            p_value = friedman$p.value
+        )
+    }
+
+    bind_rows(results)
+}
+
+create_friedman_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
+    friedman_results <- friedman_tests()
+
+    # Format the table
+    friedman_results <- friedman_results %>%
+        mutate(
+            # Clean up question type names
+            Question = case_when(
+                question_type == "delay_perception" ~ "Delay Perception",
+                question_type == "difficulty" ~ "Task Difficulty",
+                question_type == "control" ~ "Sense of Control",
+                question_type == "embodiment" ~ "Embodiment",
+                TRUE ~ as.character(question_type)
+            ),
+            p_formatted = ifelse(p_value < .001, "< .001", sprintf("%.3f", p_value)),
+        ) %>%
+        select(Question, chi_squared, df, p_formatted)
+
+    # Create gt table
+    gt(friedman_results) %>%
+        tab_header(
+            title = "Friedman's Chi-Square Test Results",
+            subtitle = "Omnibus test for differences across all conditions"
+        ) %>%
+        cols_label(
+            Question = "Metric",
+            chi_squared = "χ²", #
+            df = "df", # degree of freedom
+            p_formatted = "p", #
+        ) %>%
+        fmt_number(
+            columns = chi_squared,
+            decimals = 2
+        ) %>%
+        tab_options(
+            table.background.color = paper,
+            table.font.color = ink,
+            table.border.left.style = "solid",
+            table.border.left.width = px(2),
+            table.border.right.style = "solid",
+            table.border.right.width = px(2),
+        ) %>%
+        tab_style(
+            style = cell_text(color = ink),
+            locations = list(
+                cells_title(),
+                cells_column_labels(),
+                cells_body()
+            )
+        ) %>%
+        tab_style(
+            style = cell_fill(color = accent),
+            locations = cells_column_labels()
+        ) %>%
+        tab_style(
+            style = cell_fill(color = alpha(accent, 0.3)),
+            locations = cells_body(
+                rows = p_formatted == "< .001"
+            )
+        ) %>%
+        cols_align(
+            align = "left",
+            columns = Question
+        ) %>%
+        cols_align(
+            align = "center",
+            columns = c(chi_squared, df, p_formatted)
+        )
 }
 
 significant_analysis <- function() {
