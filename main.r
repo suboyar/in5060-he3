@@ -204,9 +204,9 @@ boxplot_explanation_plot <- function(paper = "#eaeaea", ink = "#032c3c") {
 
     x_bracket_line <- 1.55
     x_bracket_tick <- 1.35
-    x_iqr_text <- x_bracket_line + 0.01
-    x_whisker_text <- 1.15
-    x_quartile_label <- 1.15
+    x_iqr_text <- x_bracket_line + 0.17
+    x_whisker_text <- 1.30
+    x_quartile_label <- 1.30
 
     explain_plot <- ggplot() +
         geom_boxplot(data = sample_df,
@@ -214,9 +214,9 @@ boxplot_explanation_plot <- function(paper = "#eaeaea", ink = "#032c3c") {
                      fill = set1_color,
                      width = 0.20,
                      alpha=0.3,
-                     staplewidth = 0.3,
+                     staplewidth = 0.5,
                      coef = NULL) +
-        theme_linedraw(base_size = 14, paper = paper, ink = ink) +
+        theme_void(base_size = 14, paper = paper, ink = ink) +
         geom_segment(aes(x = x_bracket_line, xend = x_bracket_line ,
                          y = ggplot_output[["25th percentile"]],
                          yend = ggplot_output[["75th percentile"]]),
@@ -237,7 +237,7 @@ boxplot_explanation_plot <- function(paper = "#eaeaea", ink = "#032c3c") {
                                 "Minimum"))) +
         geom_label(aes(x = x_quartile_label, y = ggplot_output[["quartiles"]],
                        label = names(ggplot_output[["quartiles"]])),
-                    label.size = 0) +
+                   linewidth = 0) +
         ylab("") + xlab("") +
         coord_cartesian(clip = "off") +
         theme(
@@ -251,13 +251,13 @@ boxplot_explanation_plot <- function(paper = "#eaeaea", ink = "#032c3c") {
     return(explain_plot)
 }
 
-boxplot_trend_latency <- function(question = NULL, text_color="#032c3c", alpha=100) {
+boxplot_trend_latency <- function(question = NULL, paper = "#eaeaea", ink = "#032c3c", alpha=100) {
     plot_data <- data
     if (!is.null(question)) {
         plot_data <- data %>% filter(question_type == question)
     }
 
-    # Calculate means and SE for error bars
+    ## Calculate means and SE for error bars
     means <- plot_data %>%
         group_by(latency_fct, task_type, question_type) %>%
         summarise(
@@ -268,20 +268,20 @@ boxplot_trend_latency <- function(question = NULL, text_color="#032c3c", alpha=1
 
     p <- plot_data %>%
         ggplot(aes(x = latency_fct)) +
-                                        # Boxplot for distribution
+        ## Boxplot for distribution
         geom_boxplot(aes(y = response, fill = task_type),
                      alpha = 0.3, coef = NULL,
                      staplewidth = 0.5,
                      position = position_dodge(width = 0.8)) +
-                                        # Mean line for trend
+        ## Mean line for trend
         geom_line(data = means,
                   aes(y = mean_response, color = task_type, group = task_type),
                   linewidth = 1.2, position = position_dodge(width = 0.8)) +
-                                        # Mean points
+        ## Mean points
         geom_point(data = means,
                    aes(y = mean_response, color = task_type),
                    size = 3, shape = 18, position = position_dodge(width = 0.8)) +
-                                        # Error bars
+        ## Error bars
         geom_errorbar(data = means,
                       aes(y = mean_response, ymin = mean_response-se, ymax = mean_response+se,
                           color = task_type),
@@ -302,9 +302,8 @@ boxplot_trend_latency <- function(question = NULL, text_color="#032c3c", alpha=1
             color = "Task Type",
             caption = expression("Boxplots show distribution; lines show mean" %+-% "SE")
         ) +
-        theme_linedraw(base_size = 14, paper="#e1dcd8", ink="#032c3c", accent="Purple") +
+        theme_linedraw(base_size = 14, paper = alpha(paper, alpha), ink = ink) +
         theme(legend.position = "bottom",
-              ## panel.background = element_rect(fill = alpha("#e1dcd8", alpha), colour = NA),
               strip.text = element_text(face = "bold", size = 12),
               plot.caption = element_text(hjust = 0.5, face = "italic"),
               panel.grid.minor = element_blank())
