@@ -13,6 +13,7 @@ library(emmeans)
 library(lmerTest)
 library(lme4)
 library(tidyr)
+library(palmerpenguins)
 
 quest <- read_excel("LatencyPerception/questionnaire_data-561422-2025-11-21-1620.xlsx")
 exp <- read.csv("LatencyPerception/participant_experiment.csv")
@@ -311,6 +312,58 @@ boxplot_trend_latency <- function(question = NULL, paper = "#eaeaea", ink = "#03
     return(p)
 }
 
+difficulty_control_trend_latency <- function(paper = "#eaeaea", ink = "#032c3c", alpha=100) {
+    plot_data <- data %>% filter(question_type %in% c("difficulty", "control"))
+
+    ## Calculate means and SE for error bars
+    means <- plot_data %>%
+        group_by(latency_fct, task_type, question_type) %>%
+        summarise(
+            mean_response = mean(response, na.rm=TRUE),
+            se = sd(response, na.rm=TRUE) / sqrt(n()),
+            .groups='drop'
+        )
+
+    p <- plot_data %>%
+        ggplot(aes(x = latency_fct)) +
+        ## Mean line for trend
+        geom_line(data = means,
+                  aes(y = mean_response, color = task_type, group = task_type),
+                  linewidth = 1.2, alpha = 0.6) +
+        ## Mean points
+        geom_point(data = means,
+                   aes(y = mean_response, color = task_type),
+                   size = 3, shape = 18) +
+        ## Error bars
+        geom_errorbar(data = means,
+                      aes(y = mean_response, ymin = mean_response-se, ymax = mean_response+se,
+                          color = task_type),
+                      linewidth = 1.1, width = 0.2, alpha = 0.6) +
+        facet_wrap(~question_type,
+                   labeller = labeller(question_type = c(
+                                           "delay_perception" = "Delay Perception",
+                                           "difficulty" = "Task Difficulty",
+                                           "control" = "Sense of Control",
+                                           "embodiment" = "Embodiment"
+                                       ))) +
+        scale_color_brewer(palette = "Set1",
+                           labels = c(boxblock = "Box & Block", jebsen_taylor = "Jebsen Taylor")) +
+        scale_y_continuous(limits = c(1, 5), expand = expansion(mult = 0.05)) +
+        labs(
+            x = "Latency (ms)",
+            y = "Response (1-5)",
+            color = "Task Type",
+            caption = expression("Lines show mean" %+-% "SE")
+        ) +
+        theme_linedraw(base_size = 14, paper = alpha(paper, alpha), ink = ink) +
+        theme(legend.position = "bottom",
+              strip.text = element_text(face = "bold", size = 12),
+              plot.caption = element_text(hjust = 0.5, face = "italic"),
+              panel.grid.minor = element_blank())
+
+    return(p)
+}
+
 normality_tests <- function() {
     normality_results <- data %>%
         group_by(question_type, latency_fct, task_type) %>%
@@ -330,7 +383,7 @@ normality_tests <- function() {
 create_normality_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
     norm_results <- normality_tests()
 
-    # Summarize by question type
+    ## Summarize by question type
     summary_table <- norm_results %>%
         group_by(question_type) %>%
         summarise(
@@ -348,6 +401,10 @@ create_normality_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#
         ) %>%
         cols_label(
             question_type = "Question Type"
+        ) %>%
+        tab_style(
+            style = cell_fill(color = accent),
+            locations = cells_column_labels()
         ) %>%
         tab_options(
             table.background.color = paper,
@@ -367,7 +424,6 @@ friedman_tests <- function() {
             filter(question_type == q) %>%
             mutate(condition = interaction(latency_fct, task_type))
 
-        # Friedman test
         friedman <- friedman.test(response ~ condition | participant, data = d)
 
         results[[q]] <- data.frame(
@@ -395,9 +451,9 @@ create_friedman_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e
                 question_type == "embodiment" ~ "Embodiment",
                 TRUE ~ as.character(question_type)
             ),
-            p_formatted = ifelse(p_value < .001, "< .001", sprintf("%.3f", p_value)),
+            p_value = ifelse(p_value < .001, "< .001", sprintf("%.3f", p_value)),
         ) %>%
-        select(Question, chi_squared, df, p_formatted)
+        select(Question, chi_squared, df, p_value)
 
     # Create gt table
     gt(friedman_results) %>%
@@ -409,7 +465,7 @@ create_friedman_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e
             Question = "Metric",
             chi_squared = "χ²", #
             df = "df", # degree of freedom
-            p_formatted = "p", #
+            p_value = md("*p*"),
         ) %>%
         fmt_number(
             columns = chi_squared,
@@ -436,9 +492,10 @@ create_friedman_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e
             locations = cells_column_labels()
         ) %>%
         tab_style(
-            style = cell_fill(color = alpha(accent, 0.3)),
+            style = cell_text(weight = "bold"),
             locations = cells_body(
-                rows = p_formatted == "< .001"
+                columns = p_value,
+                rows = p_value == "< .001"
             )
         ) %>%
         cols_align(
@@ -447,14 +504,91 @@ create_friedman_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e
         ) %>%
         cols_align(
             align = "center",
-            columns = c(chi_squared, df, p_formatted)
+            columns = c(chi_squared, df, p_value)
+        )
+}
+
+bogus_anova_table <- function(paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
+    dat <- penguins
+    dat <- dat[!is.na(dat$sex) & !is.na(dat$body_mass_g), ]
+    dat$penguin_id <- 1:nrow(dat)
+
+
+    ## body_mass_g ~ sex * species
+    model <- aov_ez(id = "penguin_id",
+                   dv = "body_mass_g",
+                   data = dat,
+                   between = c("sex", "species"))
+
+    aov_summary <- summary(model$aov)[[1]]
+
+
+    anova_table <- summary(model)
+    result_df = data.frame(
+        Effect = rownames(anova_table),
+        SSA = anova_table$F * anova_table$MSE * anova_table$`num Df`, # SSA = F * MSE * df_num
+        SSE = anova_table$MSE * anova_table$`den Df`, # SSE = MSE * df_den
+        df_num = anova_table$`num Df`,
+        df_den = anova_table$`den Df`,
+        F_value = anova_table$F,
+        p_value = anova_table$`Pr(>F)`
+    )
+
+    ## Clean up effect names
+    result_df$Effect <- c("Sex", "Species", "Sex × Species")
+
+    ## Format p-values
+    result_df$p_value <- ifelse(result_df$p_value < .001, "< .001",
+                                sprintf("%.3f", result_df$p_value))
+
+    ## Create gt table
+    gt(result_df) %>%
+        tab_header(
+            title = paste("ANOVA Results: palmerpenguins")
+        ) %>%
+        cols_label(
+            Effect = "Source",
+            SSA = "SSA",
+            SSE = "SSE",
+            df_num = "dfnum",
+            df_den = "dfden",
+            F_value = "F",
+            p_value = md("*P*"),
+            ) %>%
+        fmt_scientific(columns = c(SSA, SSE), decimals = 2) %>%
+        fmt_number(columns = F_value, decimals = 2) %>%
+        tab_style(
+            style = cell_fill(color = accent),
+            locations = cells_column_labels()
+        ) %>%
+        tab_options(
+            table.background.color = paper,
+            table.font.color = ink,
+            table.border.left.style = "solid",
+            table.border.left.width = px(2),
+            table.border.right.style = "solid",
+            table.border.right.width = px(2),
+            ) %>%
+        tab_style(
+            style = cell_text(color = ink),
+            locations = list(
+                cells_title(),
+                cells_column_labels(),
+                cells_body()
+            )
+        ) %>%
+        tab_style(
+            style = cell_text(weight = "bold"),
+            locations = cells_body(
+                columns = p_value,
+                rows = p_value == "< .001"
+            )
         )
 }
 
 significant_analysis <- function() {
     anova_results <- list()
-    for (q in unique(data$question_type)) {
-        cat("\n========", q, "(afex) ========\n")
+     for (q in unique(data$question_type)) {
         d <- data %>% filter(question_type == q)
 
         model <-aov_ez(id = "participant",
@@ -474,7 +608,6 @@ significant_analysis <- function() {
             F_value = anova_table[-1, "F value"],
             p_value = anova_table[-1, "Pr(>F)"] # hos significant this group is
         )
-        result_df$eta_sq_partial <- result_df$SSA / (result_df$SSA + result_df$SSE)
 
         attr(result_df, "model") <- model
         anova_results[[q]] <- result_df
@@ -483,7 +616,7 @@ significant_analysis <- function() {
     return(anova_results)
 }
 
-create_anova_table <- function(question_name, anova_results) {
+create_anova_table <- function(question_name, anova_results, paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
     df <- anova_results[[question_name]]
 
     ## Clean up effect names
@@ -493,29 +626,55 @@ create_anova_table <- function(question_name, anova_results) {
     df$p_value <- ifelse(df$p_value < .001, "< .001",
                          sprintf("%.3f", df$p_value))
 
+    question_title <- case_when(
+        question_name == "delay_perception" ~ "Delay Perception",
+        question_name == "difficulty" ~ "Difficulty",
+        question_name == "control" ~ "Sense of Control",
+        question_name == "embodiment" ~ "Embodiment",
+        TRUE ~ as.character(question_name)
+    )
+
     ## Create gt table
     gt(df) %>%
         tab_header(
-            title = paste("ANOVA Results:",
-                         str_to_title(str_replace(question_name, "_", " ")))
+            title = paste("ANOVA Results:", question_title)
         ) %>%
         cols_label(
             Effect = "Source",
-            SSA = "SS Effect", # TODO: maybe use SSA instead
-            SSE = "SS Error",  # TODO: maybe use SSE instead
-            df_num = "df₁",
-            df_den = "df₂",
+            SSA = "SSA",
+            SSE = "SSE",
+            df_num = "dfnum",
+            df_den = "dfden",
             F_value = "F",
-            p_value = "P", # TODO: make capitalized and italic
-            eta_sq_partial = "η²p"
+            p_value = md("*P*"), # TODO: make capitalized and italic
         ) %>%
         fmt_number(columns = c(SSA, SSE, F_value), decimals = 2) %>%
-        fmt_number(columns = eta_sq_partial, decimals = 3) %>%
+        ## fmt_number(columns = eta_sq_partial, decimals = 3) %>%
+        tab_style(
+            style = cell_fill(color = accent),
+            locations = cells_column_labels()
+        ) %>%
+        tab_options(
+            table.background.color = paper,
+            table.font.color = ink,
+            table.border.left.style = "solid",
+            table.border.left.width = px(2),
+            table.border.right.style = "solid",
+            table.border.right.width = px(2),
+        ) %>%
+        tab_style(
+            style = cell_text(color = ink),
+            locations = list(
+                cells_title(),
+                cells_column_labels(),
+                cells_body()
+            )
+        ) %>%
         tab_style(
             style = cell_text(weight = "bold"),
             locations = cells_body(
                 columns = p_value,
-                rows = p_value == "< .001"
+                rows = p_value < 0.05
             )
         )
 }
@@ -563,41 +722,76 @@ posthoc <- function(anova_results, alpha=0.05) {
     return(posthoc_results)
 }
 
-create_posthoc_table <- function(emm_result, question, effect_type, alpha=0.05, paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
-    contrast_df <- as.data.frame(emm_result$contrasts)
-    emmeans_df <- as.data.frame(emm_result$emmeans)
+create_posthoc_table <- function(emm_results, question_name, alpha=0.05, paper = "#eaeaea", ink = "#032c3c", accent="#e1dcd8") {
+    contrast_df <- map_dfr(names(emm_results), function(effect_type) {
+        emm_result <- emm_results[[effect_type]]
 
-    question_formatted <- str_to_title(str_replace_all(question, "_", " "))
+        contrast_summary <- as.data.frame(emm_result$contrasts)
+        contrast_ci <- as.data.frame(confint(emm_result$contrasts))
 
-    effect_formatted <- case_when(
-        effect_type == "latency" ~ "Latency",
-        effect_type == "task_type" ~ "Task Type",
-        effect_type == "simple_latency" ~ "Latency (by Task)",
-        effect_type == "simple_task" ~ "Task Type (by Latency)",
-        TRUE ~ effect_type
+        contrast_summary %>%
+            select(contrast, estimate, SE, df, p.value) %>%
+            mutate(
+                lower.CL = contrast_ci$lower.CL,
+                upper.CL = contrast_ci$upper.CL,
+                effect = effect_type
+            )
+    })
+
+    effect_labels <- c(
+        "latency" = "Latency",
+        "task_type" = "Task Type",
+        "simple_latency" = "Latency (by Task)",
+        "simple_task" = "Task Type (by Latency)"
     )
 
-    title <- paste0(question_formatted, ": ", effect_formatted)
+    contrast_df <- contrast_df %>%
+        filter(p.value < alpha) %>%
+        select(effect, contrast, lower.CL, upper.CL, p.value) %>%
+        mutate(
+            effect = recode(effect, !!!effect_labels),
+            contrast = str_replace_all(contrast,
+                                       c("jebsen_taylor" = "Jebsen-Taylor", "boxblock" = "Box & Block", "X(\\d+)" = "\\1ms")
+                                       )
+        )
+
+    question_title <- case_when(
+        question_name == "delay_perception" ~ "Delay Perception",
+        question_name == "difficulty" ~ "Difficulty",
+        question_name == "control" ~ "Sense of Control",
+        question_name == "embodiment" ~ "Embodiment",
+        TRUE ~ as.character(question_name)
+    )
+
+    title <- paste0("TukeyHSD: ", question_title)
 
     gt(contrast_df) %>%
         tab_header(title = title) %>%
         cols_label(
+            effect = "Effect",
             contrast = "Comparison",
-            ) %>%
-        fmt_number(columns = c(estimate, SE, df, t.ratio), decimals = 2) %>%
+            lower.CL = "95% CI Lower",
+            upper.CL = "95% CI Upper",
+            p.value = md("*P*")
+        ) %>%
+        fmt_number(columns = c(lower.CL, upper.CL), decimals = 2) %>%
         fmt(columns = p.value, fns = function(x) {
             ifelse(x < .001, "< .001", sprintf("%.3f", x))
         }) %>%
         fmt(columns = contrast, fns = function(x) {
             ifelse(grepl("X\\d+", x), gsub("X(\\d+)", "\\1ms", x), x)
         }) %>%
+        tab_style(
+            style = cell_fill(color = accent),
+            locations = cells_column_labels()
+        ) %>%
         tab_options(
             table.background.color = paper,
             table.font.color = ink,
             table.border.left.style = "solid",
             table.border.left.width = px(2),
             table.border.right.style = "solid",
-            table.border.right.width = px(2),
+            table.border.right.width = px(2)
         ) %>%
         tab_style(
             style = cell_text(color = ink),
@@ -609,73 +803,68 @@ create_posthoc_table <- function(emm_result, question, effect_type, alpha=0.05, 
         ) %>%
         tab_style(
             style = cell_text(weight = "bold"),
-            locations = cells_body(
-                columns = p.value,
-                rows = p.value < alpha
-            )
+            locations = cells_body(columns = p.value)
         ) %>%
-        tab_style(
-            style = cell_fill(color = accent),
-            locations = cells_body(
-                rows = p.value < alpha
-            )
+        tab_footnote(
+            footnote = "95% Confidence Intervals for differences",
+            locations = cells_column_labels(columns = c(lower.CL, upper.CL))
         )
 }
 
 posthoc_results <- posthoc(anova_results)
-## posthoc_results$control$latency
 
-generate_pngs <- function(outdir=NULL) {
+generate_pngs <- function(outdir="images") {
     if (!is.null(outdir) && outdir != "." && outdir != "..") {
         dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
     }
 
+    filename <- "demographics_summary.png"
+    cat("Generating: ", filename, "\n")
     gtsave(demographics_summary_table(),
-           filename = "demographics_summary.png",
+           filename = filename,
            path = outdir,
            expand = 1)
 
+    filename <- "normality_summary.png"
+    cat("Generating: ", filename, "\n")
     gtsave(create_normality_table(),
        filename = "normality_summary.png",
        path = outdir,
        expand = 1)
 
-    gtsave(create_friedman_table(),
-       filename = "friedman.png",
-       path = outdir,
-       expand = 1)
 
-    create_friedman_table
+    filename <- "boxplot_faceted.png"
+    cat("Generating: ", filename, "\n")
+    ggsave(filename, boxplot_trend_latency(), path = outdir, width = 9)
+    ## ggsave("boxplot_delay_perception.png", boxplot_trend_latency("delay_perception"), path = outdir)
+    ## ggsave("boxplot_difficulty.png", boxplot_trend_latency("difficulty"), path = outdir)
+    ## ggsave("boxplot_control.png", boxplot_trend_latency("control"), path = outdir)
+    ## ggsave("boxplot_embodiment.png", boxplot_trend_latency("embodiment"), path = outdir)
 
-    ggsave("boxplot_faceted.png", boxplot_trend_latency(), path = outdir)
-    ggsave("boxplot_delay_perception.png", boxplot_trend_latency("delay_perception"), path = outdir)
-    ggsave("boxplot_difficulty.png", boxplot_trend_latency("difficulty"), path = outdir)
-    ggsave("boxplot_control.png", boxplot_trend_latency("control"), path = outdir)
-    ggsave("boxplot_embodiment.png", boxplot_trend_latency("embodiment"), path = outdir)
+    filename <- "difficulty_control_trend_latency.png"
+    cat("Generating: ", filename, "\n")
+    ggsave(filename, difficulty_control_trend_latency(), path = outdir, width = 9)
 
     questions <- c("delay_perception", "difficulty", "control", "embodiment")
-
     for (question in questions) {
+        filename <- paste0("anova_", question, ".png")
+        cat("Generating: ", filename, "\n")
         gtsave(create_anova_table(question, anova_results),
-               filename = paste0("anova_", question, ".png"),
+               filename = filename,
                path = outdir,
                expand = 1)
     }
 
-    effect_types <- c("latency", "task_type", "simple_task", "simple_latency")
-
     for (question in questions) {
         if (length(posthoc_results[[question]]) > 0) {
-            for (effect_type in effect_types) {
-                emm_result <- posthoc_results[[question]][[effect_type]]
-                if (!is.null(emm_result)) {
-                    table <- create_posthoc_table(emm_result, question, effect_type)
-                    gtsave(table,
-                           filename = paste0("posthoc_", question, "_", effect_type, ".png"),
-                           path = outdir,
-                           expand = 1)
-                }
-            }
+            emm_results <- posthoc_results[[question]]
+            table <- create_posthoc_table(emm_results, question)
+            filename <- paste0("posthoc_", question, ".png")
+            cat("Generating: ", filename, "\n")
+            gtsave(table,
+                   filename = filename,
+                   path = outdir,
+                   expand = 1)
         }
     }
 }
