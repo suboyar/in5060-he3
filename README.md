@@ -3,7 +3,7 @@
 This Home Exam is about statistic analyzing the study conducted by
 Myrthe Erica Jeanne Tilleman at University of Oslo.
 
-There two files provided: `xdf2csv.py`, `main.r`. `xdf2csv.py` is
+There are two files provided: `xdf2csv.py`, `main.r`. `xdf2csv.py` is
 meant the parse the XDF files generated from the study, but you need
 to supply these files at your own as they are too big for GitHub,
 hence they are not provided in this repo. `main.r` is for performing
